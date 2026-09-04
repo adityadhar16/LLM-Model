@@ -2,6 +2,7 @@ import Message from '../models/Message.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
+import { HfInference } from '@huggingface/inference';
 
 export const handleChat = async (req, res) => {
   const { message, history = [], model, apiKey } = req.body;
@@ -19,6 +20,7 @@ export const handleChat = async (req, res) => {
       if (selectedModel === 'gemini' && process.env.GEMINI_API_KEY) key = process.env.GEMINI_API_KEY.trim();
       if (selectedModel === 'openai' && process.env.OPENAI_API_KEY) key = process.env.OPENAI_API_KEY.trim();
       if (selectedModel === 'groq' && process.env.GROQ_API_KEY) key = process.env.GROQ_API_KEY.trim();
+      if (selectedModel === 'huggingface' && process.env.HUGGINGFACE_API_KEY) key = process.env.HUGGINGFACE_API_KEY.trim();
     }
 
     if (!key) {
@@ -65,13 +67,29 @@ export const handleChat = async (req, res) => {
         model: groqModel,
       });
       reply = chatCompletion.choices[0].message.content;
+    } else if (selectedModel === 'huggingface') {
+      const hf = new HfInference(key);
+      const hfModel = process.env.HUGGINGFACE_MODEL || 'mistralai/Mistral-7B-Instruct-v0.3';
+      
+      // Formatting for Hugging Face chat completion
+      const formattedHistory = history.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }));
+      
+      const chatCompletion = await hf.chatCompletion({
+        model: hfModel,
+        messages: [...formattedHistory, { role: 'user', content: message }],
+        max_tokens: 1024
+      });
+      reply = chatCompletion.choices[0].message.content;
     } else {
       reply = `Unsupported model: ${selectedModel}`;
     }
 
   } catch (error) {
-    console.error(error);
-    reply = `Sorry, there was an error connecting to the AI service: ${error.message}`;
+    console.error("AI Service Error:", error);
+    return res.status(500).json({ error: `AI Service Error: ${error.message}` });
   }
 
   try {

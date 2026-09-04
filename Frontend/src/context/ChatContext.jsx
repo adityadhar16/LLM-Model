@@ -23,7 +23,7 @@ export const ChatProvider = ({ children }) => {
 
   const [apiKeys, setApiKeys] = useState(() => {
     const saved = localStorage.getItem('ai_api_keys');
-    return saved ? JSON.parse(saved) : { gemini: '', openai: '', groq: '' };
+    return saved ? JSON.parse(saved) : { gemini: '', openai: '', groq: '', huggingface: '' };
   });
 
   // Save to local storage whenever chats change
@@ -89,7 +89,7 @@ export const ChatProvider = ({ children }) => {
     return firstMessage.length > 30 ? firstMessage.substring(0, 30) + '...' : firstMessage;
   };
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, base64Image = null) => {
     let currentChatId = activeChatId;
 
     if (!currentChatId) {
@@ -103,11 +103,10 @@ export const ChatProvider = ({ children }) => {
       currentChatId = newChat.id;
     }
 
-    // Add user message
-    const userMessage = { role: 'user', content };
+    // Add user message (now including image if present)
+    const userMessage = { role: 'user', content, image: base64Image };
     setChats(prev => prev.map(chat => {
       if (chat.id === currentChatId) {
-        // Auto-generate title if it's "New Chat"
         const title = chat.messages.length === 0 ? generateTitle(content) : chat.title;
         return { ...chat, title, messages: [...chat.messages, userMessage] };
       }
@@ -120,13 +119,11 @@ export const ChatProvider = ({ children }) => {
     try {
       const currentApiKey = apiKeys[selectedModel];
       
-      // Get the existing messages before the new user message was added to use as history
       const currentChat = chats.find(c => c.id === currentChatId);
       const history = currentChat ? currentChat.messages : [];
-      // Don't include the error messages in history to avoid confusing the AI
       const cleanHistory = history.filter(msg => msg.role !== 'error');
 
-      const response = await sendMessage(content, cleanHistory, selectedModel, currentApiKey);
+      const response = await sendMessage(content, cleanHistory, selectedModel, currentApiKey, base64Image);
       const aiMessage = { role: 'ai', content: response.reply || "No response received" };
       
       setChats(prev => prev.map(chat => 
@@ -137,14 +134,12 @@ export const ChatProvider = ({ children }) => {
       
       const errMsg = err.message.toLowerCase();
       if (errMsg.includes('not authorized') || errMsg.includes('token') || errMsg.includes('401')) {
-        // Auto-save history on token expiration
         const currentChats = localStorage.getItem('ai_chats');
         const currentId = localStorage.getItem('ai_active_chat_id');
         if (currentChats) localStorage.setItem('ai_chats_backup', currentChats);
         if (currentId) localStorage.setItem('ai_active_chat_id_backup', currentId);
       }
 
-      // Optional: Add an error message to the chat
       const errorMessage = { role: 'error', content: err.message };
       setChats(prev => prev.map(chat => 
         chat.id === currentChatId ? { ...chat, messages: [...chat.messages, errorMessage] } : chat
@@ -176,6 +171,67 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  const handleRegenerate = async () => {
+    if (!activeChatId) return;
+
+    const currentChat = chats.find(c => c.id === activeChatId);
+    if (!currentChat || currentChat.messages.length === 0) return;
+
+    let filteredMessages = [...currentChat.messages];
+    while (filteredMessages.length > 0 && filteredMessages[filteredMessages.length - 1].role === 'error') {
+      filteredMessages.pop();
+    }
+
+    if (filteredMessages.length === 0) return;
+    
+    let lastUserMessage = "";
+    let lastUserImage = null;
+    if (filteredMessages[filteredMessages.length - 1].role === 'ai') {
+        for (let i = filteredMessages.length - 1; i >= 0; i--) {
+            if (filteredMessages[i].role === 'user') {
+                lastUserMessage = filteredMessages[i].content;
+                lastUserImage = filteredMessages[i].image || null;
+                filteredMessages = filteredMessages.slice(0, i);
+                break;
+            }
+        }
+    } else if (filteredMessages[filteredMessages.length - 1].role === 'user') {
+        lastUserMessage = filteredMessages[filteredMessages.length - 1].content;
+        lastUserImage = filteredMessages[filteredMessages.length - 1].image || null;
+        filteredMessages.pop(); 
+    }
+    
+    if (!lastUserMessage && !lastUserImage) return;
+
+    setChats(prev => prev.map(chat => 
+      chat.id === activeChatId ? { ...chat, messages: [...filteredMessages, { role: 'user', content: lastUserMessage, image: lastUserImage }] } : chat
+    ));
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const currentApiKey = apiKeys[selectedModel];
+      const cleanHistory = filteredMessages.filter(msg => msg.role !== 'error');
+
+      const response = await sendMessage(lastUserMessage, cleanHistory, selectedModel, currentApiKey, lastUserImage);
+      const aiMessage = { role: 'ai', content: response.reply || "No response received" };
+      
+      setChats(prev => prev.map(chat => 
+        chat.id === activeChatId ? { ...chat, messages: [...chat.messages, aiMessage] } : chat
+      ));
+    } catch (err) {
+      setError(err.message);
+      
+      const errorMessage = { role: 'error', content: err.message };
+      setChats(prev => prev.map(chat => 
+        chat.id === activeChatId ? { ...chat, messages: [...chat.messages, errorMessage] } : chat
+      ));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const activeChat = chats.find(c => c.id === activeChatId) || null;
 
   return (
@@ -188,6 +244,7 @@ export const ChatProvider = ({ children }) => {
       deleteChat,
       renameChat,
       handleSendMessage,
+      handleRegenerate,
       isSidebarOpen,
       setSidebarOpen,
       isSettingsOpen,

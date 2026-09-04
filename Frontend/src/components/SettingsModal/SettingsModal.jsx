@@ -85,6 +85,7 @@ const SettingsModal = () => {
             {/* <MenuItem value="gemini">Google Gemini (gemini-1.5-flash)</MenuItem> */}
             <MenuItem value="openai">OpenAI (gpt-3.5-turbo)</MenuItem>
             <MenuItem value="groq">Groq (gpt-oss-120b)</MenuItem>
+            <MenuItem value="huggingface">Hugging Face</MenuItem>
           </Select>
         </FormControl>
 
@@ -133,6 +134,23 @@ const SettingsModal = () => {
               value={localKeys.groq}
               onChange={(e) => handleKeyChange('groq', e.target.value)}
               placeholder="gsk_..."
+              fullWidth
+              variant="outlined"
+              size="small"
+              InputLabelProps={{ sx: { color: '#9ca3af' } }}
+              sx={{
+                input: { color: '#e2e8f0' },
+                '.MuiOutlinedInput-notchedOutline': { borderColor: '#4b5563' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#60a5fa' },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#3b82f6' },
+              }}
+            />
+            <TextField
+              label="Hugging Face API Key"
+              type="password"
+              value={localKeys.huggingface || ''}
+              onChange={(e) => handleKeyChange('huggingface', e.target.value)}
+              placeholder="hf_..."
               fullWidth
               variant="outlined"
               size="small"
